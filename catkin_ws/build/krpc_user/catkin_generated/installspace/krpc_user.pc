@@ -1,0 +1,8 @@
+prefix=/users/catkin_ws/install
+
+Name: krpc_user
+Description: Description of krpc_user
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 

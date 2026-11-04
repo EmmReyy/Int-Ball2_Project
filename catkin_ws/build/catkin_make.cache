@@ -1,0 +1,2 @@
+krpc_api_server:krpc_ib2_msgs:krpc_user
+-DCATKIN_DEVEL_PREFIX=/users/catkin_ws/devel -DCMAKE_INSTALL_PREFIX=/users/catkin_ws/install -G Unix Makefiles

@@ -1,0 +1,8 @@
+prefix=/users/catkin_ws/install
+
+Name: krpc_api_server
+Description: Description of krpc_api_server
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: rospy std_msgs actionlib actionlib_msgs krpc_ib2_msgs
