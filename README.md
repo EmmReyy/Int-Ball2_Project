@@ -10,7 +10,7 @@ The movement function and pathfinding algroithms have been from the templat. As 
 
 Here is a video showing how the Robot moves withing the simultation
 
-<video controls src="Screencast From 2026-11-03 20-08-15.webm" title="Title"></video>
+![alt text](MOVE.gif)
 
 Evident in the video, the robot traverses stations in the order that reduces travel distance the most. Instead of traversing by the station IDs or by following a nearest neighbor approach, the robot traverses the stations so that the stations are only visited once, avoiding backtracking and unnecsary cost on travel time
 
