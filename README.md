@@ -1,40 +1,27 @@
-# Kibo-RPC: How to Submit Source Code
+# User Program for JAXA's Int-Ball2 simulator
 
-This guide assumes that you are using WSL or Ubuntu.
+This is our program for the 7th krpc. The relevant files are inside the  Int-Ball2_Project/catkin_ws/src/krpc_user folder.
 
-## 1. Modify Your Source Code
+# Overview
 
-Modify your source code in the user workspace.
+The movement function and pathfinding algroithms have been from the templat. As of now, a Held-Karp method of traversal is implemented. The current version of the program can reliably traverse all of the targets without the need for course correction. On average, this program can typically finish the course in three an a half minutes - leaving 30 ish seconds to spare.
 
-Please follow these rules:
+# Demonstration
 
-- Do not modify `krpc_api_server` or `krpc_ib2_msg`.
-- Do not change the package names specified in `CMakeLists.txt` or `package.xml`.
-- Do not rename the launch file.
+Here is a video showing how the Robot moves withing the simultation
 
-## 2. Package Your Source Code
+<video controls src="Screencast From 2026-11-03 20-08-15.webm" title="Title"></video>
 
-From the `users` directory, run `packing.sh` with your preferred archive name:
+Evident in the video, the robot traverses stations in the order that reduces travel distance the most. Instead of traversing by the station IDs or by following a nearest neighbor approach, the robot traverses the stations so that the stations are only visited once, avoiding backtracking and unnecsary cost on travel time
 
-```bash
-cd users
-bash packing.sh my_submission
-```
+<video controls src="Screencast From 2026-11-04 13-58-47.webm" title="Title"></video>
 
-This command creates `my_submission.tar.gz`. You may use any name for the archive.
+As seen on the results, the robot can reliably pass and all the stations within the location without the need for backtracking and course corrections.
 
-## 3. Log In to the Simulator Website
+![alt text](picOne.png)
 
-Open the following URL and log in:
+The function for taking readings and detecting the AR markers are reliable. All 8 stations in every run so far can reliably detect and report the AR markers. However, the sequence of rotations take may be taking too much time. This will be ammended in the next version.
 
-https://jaxa.krpc.jp/user-auth
+![alt text](picTwo.png)
 
-Use the account credentials provided by the event organizer.
-
-## 4. Upload and Run Your Source Code
-
-1. Click the **SIMULATION** tab.
-2. Upload the generated archive to a **Slot**.
-3. Click **START SIMULATION** to run the simulation.
-
-Now, let's start developing!
+# Technologies used

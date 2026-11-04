@@ -183,7 +183,7 @@ set(CMAKE_MAKEFILE_DEPENDS
   "/users/catkin_ws/src/krpc_ib2_msgs/package.xml"
   "/users/catkin_ws/src/krpc_user/CMakeLists.txt"
   "/users/catkin_ws/src/krpc_user/package.xml"
-  "/users/catkin_ws/src/krpc_user/scripts/user_template.py"
+  "/users/catkin_ws/src/krpc_user/scripts/my_program.py"
   "/usr/local/share/OpenCV/OpenCVConfig-version.cmake"
   "/usr/local/share/OpenCV/OpenCVConfig.cmake"
   "/usr/local/share/OpenCV/OpenCVModules-release.cmake"
