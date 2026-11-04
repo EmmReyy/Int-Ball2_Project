@@ -6,7 +6,7 @@ This is our program for the 7th krpc. The relevant files are inside the  Int-Bal
 
 The movement function and pathfinding algroithms have been from the templat. As of now, a Held-Karp method of traversal is implemented. The current version of the program can reliably traverse all of the targets without the need for course correction. On average, this program can typically finish the course in three an a half minutes - leaving 30 ish seconds to spare.
 
-# Demonstration
+## Demonstration
 
 Here is a video showing how the Robot moves withing the simultation
 
@@ -24,4 +24,18 @@ The function for taking readings and detecting the AR markers are reliable. All 
 
 ![alt text](picTwo.png)
 
-# Technologies used
+## Technologies used
+ROS Melodic (Robot Operating System) – Framework of the robot, used to manage the software components.
+
+Catkin – Build system used to organize and compile ROS packages.
+
+C++11 - Used for scripting and inmplementing the robot functionalities.
+
+Python 3 – Also used for scripting and implementing robot functionalities. But Python.
+
+Ubuntu Linux – Linux-based development environment.
+
+JAXA Int-Ball2 Simulator – Simulation platform used for developing and testing the robot's functionalities.
+
+CMake - Required build config by ROS.
+
