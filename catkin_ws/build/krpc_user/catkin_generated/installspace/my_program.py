@@ -209,6 +209,8 @@ class UserTemplate:
 
         return distance
 
+    #def __determine_angle_distance(self, first, second):
+
     def __held_karp_approach(self, distances):
 
         best_order = []
