@@ -262,14 +262,12 @@ class UserTemplate:
 
         marker_orient = target["marker_pose"]["quaternion"]
 
-        dot_prod = (self.current_orientation.x * marker_orient[0]) + (self.current_orientation.y * marker_orient[1]) + (self.current_orientation.x * marker_orient[2])  + (self.current_orientation.x * marker_orient[3]) 
+        dot_prod = (self.current_orientation.x * marker_orient[0]) + (self.current_orientation.y * marker_orient[1]) + (self.current_orientation.z * marker_orient[2])  + (self.current_orientation.w * marker_orient[3]) 
 
         if dot_prod < 0:
             marker_orient = [-a for a in marker_orient]
 
-        inverted_current_orient = [-marker_orient[0], -marker_orient[1], -marker_orient[2]]
-
-        err = (self.current_orientation.x * marker_orient[3]) - (self.current_orientation.x * marker_orient[2]) - (self.current_orientation.x * marker_orient[1]) + (self.current_orientation.x * marker_orient[0])
+        err = (self.current_orientation.w * marker_orient[3]) + (self.current_orientation.x * marker_orient[0]) + (self.current_orientation.y * marker_orient[1]) + (self.current_orientation.z * marker_orient[2])
 
         return err
         
