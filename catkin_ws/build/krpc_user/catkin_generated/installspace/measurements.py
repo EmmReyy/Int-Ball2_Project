@@ -15,6 +15,7 @@ from geometry_msgs.msg import PoseStamped
 from krpc_ib2_msgs.srv import MissionStart, MissionFinished, CheckPoints
 from krpc_ib2_msgs.msg import CheckpointPassedAction, CheckpointPassedGoal
 from ib2_msgs.msg import CtlCommandAction, CtlCommandGoal, CtlCommandResult, CtlStatusType, Navigation
+from geometry_msgs.msg import WrenchStamped
 
 # Optional IF examples. Uncomment only what your program uses.
 # from std_msgs.msg import Time
@@ -36,9 +37,22 @@ class UserTemplate:
         self.__mission_start = rospy.ServiceProxy('/event/mission_start', MissionStart)
         self.__mission_finished = rospy.ServiceProxy('/event/mission_finished', MissionFinished)
         self.__checkpoints = rospy.ServiceProxy('/mission/get_checkpoints', CheckPoints)
+        self.__wrench_pub = rospy.Publisher('/ctl/wrench', WrenchStamped, queue_size=1)
 
         # Subscriber
         self.__subscriber_start = rospy.Subscriber('/ib2_user/start', UserLogic, self.__callback_start)  # DO NOT REMOVE THIS LINE
+        self.__nav_lock = threading.Lock()
+        self.__latest_navigation = None
+        self.__latest_navigation_received = None
+        self.__controller_active = False
+        self.__stop_requested = threading.Event()
+
+        self.__subscriber_nav = rospy.Subscriber(
+            '/sensor_fusion/navigation',
+            Navigation,
+            self.__callback_nav,
+            queue_size=1
+        )
 
         # Optional subscriber examples.
         # /sensor_fusion/navigation provides the current Int-Ball2 pose, velocity and acceleration.
@@ -52,6 +66,11 @@ class UserTemplate:
         self.__started = False
         self.__action_active = False
         rospy.set_param('/ib2_user/ready', True) # DO NOT REMOVE THIS LINE
+
+    def __callback_nav(self, msg):
+        with self.__nav_lock:
+            self.__latest_navigation = msg
+            self.__latest_navigation_received = time.monotonic()
 
     def __notify_mission_start(self):
         rospy.wait_for_service('/event/mission_start')
@@ -103,7 +122,6 @@ class UserTemplate:
             payload = json.loads(res.message)
             checkpoints = payload.get('checkpoints', payload.get('Checkpoints', []))
 
-            
             checkpoints = [cp for cp in checkpoints if isinstance(cp, dict) and self.__get_checkpoint_id(cp) is not None]
             if not checkpoints:
                 rospy.logwarn('No checkpoints found in payload')
@@ -706,34 +724,446 @@ class UserTemplate:
 
         return len(results) == len(rotation_angles)
 
-    #=============== END OF MY ADDITIONS :3 ======================
+    def __measure_combined_motion(self):
 
+        self.__nav_lock = threading.Lock()
+        self.__latest_nav = None
+        self.__samples = []
+        self.__recording = False
+
+        self.__subscriber_nav = rospy.Subscriber(
+            '/sensor_fusion/navigation',
+            Navigation,
+            self.__callback_benchmark_nav,
+            queue_size=100
+        )
+
+        if not self.__command.wait_for_server(rospy.Duration(10.0)):
+            raise RuntimeError('Movement action server unavailable')
+
+        start_nav = self.__wait_for_benchmark_nav()
+
+        rospy.loginfo(
+            'START POSE: x=%.4f y=%.4f z=%.4f',
+            start_nav['x'],
+            start_nav['y'],
+            start_nav['z']
+        )
+
+        target = PoseStamped()
+        target.header.stamp = rospy.Time.now()
+        target.header.frame_id = 'body'
+
+        target.pose.position.x = 2.25
+        target.pose.position.y = 0.0
+        target.pose.position.z = 0.0
+
+        angle = math.radians(90.0)
+
+        target.pose.orientation.x = 0.0
+        target.pose.orientation.y = 0.0
+        target.pose.orientation.z = math.sin(angle / 2.0)
+        target.pose.orientation.w = math.cos(angle / 2.0)
+
+        command_type = CtlStatusType(
+            type=CtlStatusType.MOVE_TO_RELATIVE_TARGET
+        )
+
+        goal = CtlCommandGoal(
+            target=target,
+            type=command_type
+        )
+
+        with self.__nav_lock:
+            self.__samples = [start_nav.copy()]
+            self.__recording = True
+
+        start_wall = time.monotonic()
+        start_sim = rospy.Time.now().to_sec()
+
+        self.__action_active = True
+
+        finished = False
+        result = None
+
+        try:
+            rospy.loginfo(
+                'COMBINED TEST: translating 0.25 m along body X '
+                'while rotating +90 degrees around body Z'
+            )
+
+            self.__command.send_goal(goal)
+
+            finished = self.__command.wait_for_result(
+                rospy.Duration(60.0)
+            )
+
+            end_wall = time.monotonic()
+            end_sim = rospy.Time.now().to_sec()
+
+            if finished:
+                result = self.__command.get_result()
+                rospy.loginfo('Combined movement result: %s', result)
+            else:
+                rospy.logerr('Combined movement timed out')
+                self.__command.cancel_goal()
+
+                if not self.__command.wait_for_result(rospy.Duration(10.0)):
+                    rospy.logerr('Movement cancellation not confirmed')
+
+            time.sleep(0.3)
+
+        finally:
+            with self.__nav_lock:
+                self.__recording = False
+                samples = list(self.__samples)
+
+            self.__action_active = False
+
+        if len(samples) < 2:
+            rospy.logerr('Insufficient navigation samples')
+            return False
+
+        self.__save_motion_samples(samples)
+
+        linear_indices = [
+            i for i, sample in enumerate(samples)
+            if sample['speed'] >= self.TRANSLATION_SPEED_THRESHOLD
+        ]
+
+        angular_indices = [
+            i for i, sample in enumerate(samples)
+            if abs(sample['wz']) >= self.ROTATION_SPEED_THRESHOLD
+        ]
+
+        if len(linear_indices) < 2:
+            rospy.logerr('Insufficient translational movement detected')
+            return False
+
+        if len(angular_indices) < 2:
+            rospy.logerr('Insufficient rotational movement detected')
+            return False
+
+        linear_start = samples[linear_indices[0]]['received']
+        linear_end = samples[linear_indices[-1]]['received']
+
+        angular_start = samples[angular_indices[0]]['received']
+        angular_end = samples[angular_indices[-1]]['received']
+
+        translation_duration = linear_end - linear_start
+        rotation_duration = angular_end - angular_start
+
+        overlap_start = max(linear_start, angular_start)
+        overlap_end = min(linear_end, angular_end)
+
+        overlap_duration = max(0.0, overlap_end - overlap_start)
+
+        shorter_duration = min(
+            translation_duration,
+            rotation_duration
+        )
+
+        overlap_percentage = (
+            overlap_duration / shorter_duration * 100.0
+            if shorter_duration > 0.0
+            else 0.0
+        )
+
+        command_duration = end_wall - start_wall
+
+        path_distance = 0.0
+
+        for previous, current in zip(samples, samples[1:]):
+            path_distance += math.sqrt(
+                (current['x'] - previous['x'])**2 +
+                (current['y'] - previous['y'])**2 +
+                (current['z'] - previous['z'])**2
+            )
+
+        angular_distance = 0.0
+
+        for previous, current in zip(samples, samples[1:]):
+            dt = current['received'] - previous['received']
+
+            angular_distance += (
+                (abs(previous['wz']) + abs(current['wz'])) / 2.0
+            ) * dt
+
+        angular_distance_degrees = math.degrees(angular_distance)
+
+        rospy.loginfo('========== CONCURRENT MOMOVEMENT TEST ==========')
+        rospy.loginfo('Command duration: %.3f seconds', command_duration)
+        rospy.loginfo('Simulation duration: %.3f seconds', end_sim - start_sim)
+        rospy.loginfo('Measured translation duration: %.3f seconds', translation_duration)
+        rospy.loginfo('Measured rotation duration: %.3f seconds', rotation_duration)
+        rospy.loginfo('Measured path distance: %.4f meters', path_distance)
+        rospy.loginfo('Measured rotation: %.2f degrees', angular_distance_degrees)
+        rospy.loginfo('Translation started: %.3f seconds after command', linear_start - start_wall)
+        rospy.loginfo('Rotation started: %.3f seconds after command', angular_start - start_wall)
+        rospy.loginfo('Translation ended: %.3f seconds after command', linear_end - start_wall)
+        rospy.loginfo('Rotation ended: %.3f seconds after command', angular_end - start_wall)
+        rospy.loginfo('OVERLAP DURATION: %.3f seconds', overlap_duration)
+        rospy.loginfo('OVERLAP OF SHORTER MOVEMENT: %.1f%%', overlap_percentage)
+        rospy.loginfo('==========================================')
+
+        success = (
+            finished and
+            result is not None and
+            result.type == CtlCommandResult.TERMINATE_SUCCESS
+        )
+
+        if overlap_duration > 0.1:
+            rospy.loginfo('RESULT: Translation and rotation overlapped.')
+        else:
+            rospy.logwarn('RESULT: No significant translation/rotation overlap detected.')
+
+        return success
+        #=============== END OF MY ADDITIONS :3 ======================
+
+#========================== EXPERIMENTAL SHIT ====================================
+    @staticmethod
+    def quaternion_multiply(q1, q2):
+        x1, y1, z1, w1 = q1
+        x2, y2, z2, w2 = q2
+
+        return (
+            w1*x2 + x1*w2 + y1*z2 - z1*y2,
+            w1*y2 - x1*z2 + y1*w2 + z1*x2,
+            w1*z2 + x1*y2 - y1*x2 + z1*w2,
+            w1*w2 - x1*x2 - y1*y2 - z1*z2
+        )
+
+    @staticmethod
+    def rotate_vector(q, v):
+        q_inv = (-q[0], -q[1], -q[2], q[3])
+        vq = (v[0], v[1], v[2], 0.0)
+
+        result = UserTemplate.quaternion_multiply(
+            UserTemplate.quaternion_multiply(q, vq),
+            q_inv
+        )
+
+        return result[:3]
+
+    @staticmethod
+    def clamp_vector(v, maximum):
+        magnitude = math.sqrt(sum(x*x for x in v))
+
+        if magnitude > maximum:
+            scale = maximum / magnitude
+            return tuple(x * scale for x in v)
+
+        return v
+
+    def move_and_rotate(
+        self,
+        current_position,
+        current_orientation,
+        linear_velocity,
+        angular_velocity,
+        target_position,
+        target_orientation
+    ):
+        kp_position = 0.08
+        kd_position = 0.15
+
+        kp_rotation = 0.04
+        kd_rotation = 0.08
+
+        max_force = 0.1
+        max_torque = 0.01
+
+        q = current_orientation
+
+        position_error = tuple(
+            target_position[i] - current_position[i]
+            for i in range(3)
+        )
+
+        position_error_body = self.rotate_vector(
+            (-q[0], -q[1], -q[2], q[3]),
+            position_error
+        )
+
+        force = tuple(
+            kp_position * position_error_body[i]
+            - kd_position * linear_velocity[i]
+            for i in range(3)
+        )
+
+        q_error = self.quaternion_multiply(
+            (-q[0], -q[1], -q[2], q[3]),
+            target_orientation
+        )
+
+        if q_error[3] < 0:
+            q_error = tuple(-x for x in q_error)
+
+        angle = 2.0 * math.acos(
+            max(-1.0, min(1.0, q_error[3]))
+        )
+
+        sin_half = math.sqrt(
+            max(0.0, 1.0 - q_error[3]**2)
+        )
+
+        if sin_half > 1e-6:
+            rotation_error = tuple(
+                q_error[i] / sin_half * angle
+                for i in range(3)
+            )
+        else:
+            rotation_error = (0.0, 0.0, 0.0)
+
+        torque = tuple(
+            kp_rotation * rotation_error[i]
+            - kd_rotation * angular_velocity[i]
+            for i in range(3)
+        )
+
+        force = self.clamp_vector(force, max_force)
+        torque = self.clamp_vector(torque, max_torque)
+
+        msg = WrenchStamped()
+        msg.header.stamp = rospy.Time.now()
+        msg.header.frame_id = "body"
+
+        msg.wrench.force.x = force[0]
+        msg.wrench.force.y = force[1]
+        msg.wrench.force.z = force[2]
+
+        msg.wrench.torque.x = torque[0]
+        msg.wrench.torque.y = torque[1]
+        msg.wrench.torque.z = torque[2]
+
+        self.__wrench_pub.publish(msg)
+
+    def move_and_rotate(self, nav, target_position, target_orientation):
+        kp_position = 0.08
+        kd_position = 0.15
+        kp_rotation = 0.04
+        kd_rotation = 0.08
+
+        max_force = 0.1
+        max_torque = 0.01
+
+        q = (
+            nav.pose.pose.orientation.x,
+            nav.pose.pose.orientation.y,
+            nav.pose.pose.orientation.z,
+            nav.pose.pose.orientation.w
+        )
+
+        position = (
+            nav.pose.pose.position.x,
+            nav.pose.pose.position.y,
+            nav.pose.pose.position.z
+        )
+
+        velocity = (
+            nav.twist.linear.x,
+            nav.twist.linear.y,
+            nav.twist.linear.z
+        )
+
+        angular_velocity = (
+            nav.twist.angular.x,
+            nav.twist.angular.y,
+            nav.twist.angular.z
+        )
+
+        # Translation
+        position_error = tuple(
+            target_position[i] - position[i] for i in range(3)
+        )
+
+        position_error_body = self.rotate_vector(
+            (-q[0], -q[1], -q[2], q[3]),
+            position_error
+        )
+
+        force = tuple(
+            kp_position * position_error_body[i]
+            - kd_position * velocity[i]
+            for i in range(3)
+        )
+
+        force = self.clamp_vector(force, max_force)
+
+        # Rotation
+        q_error = self.quaternion_multiply(
+            (-q[0], -q[1], -q[2], q[3]),
+            target_orientation
+        )
+
+        if q_error[3] < 0:
+            q_error = tuple(-v for v in q_error)
+
+        angle = 2.0 * math.atan2(
+            math.sqrt(q_error[0]**2 + q_error[1]**2 + q_error[2]**2),
+            q_error[3]
+        )
+
+        magnitude = math.sqrt(
+            q_error[0]**2 + q_error[1]**2 + q_error[2]**2
+        )
+
+        if magnitude > 1e-6:
+            rotation_error = tuple(
+                q_error[i] / magnitude * angle for i in range(3)
+            )
+        else:
+            rotation_error = (0.0, 0.0, 0.0)
+
+        torque = tuple(
+            kp_rotation * rotation_error[i]
+            - kd_rotation * angular_velocity[i]
+            for i in range(3)
+        )
+
+        torque = self.clamp_vector(torque, max_torque)
+
+        # Publish both simultaneously
+        wrench = WrenchStamped()
+        wrench.header.stamp = rospy.Time.now()
+        wrench.header.frame_id = "body"
+
+        wrench.wrench.force.x = force[0]
+        wrench.wrench.force.y = force[1]
+        wrench.wrench.force.z = force[2]
+
+        wrench.wrench.torque.x = torque[0]
+        wrench.wrench.torque.y = torque[1]
+        wrench.wrench.torque.z = torque[2]
+
+        self.__force_and_torque_publisher.publish(wrench)
+
+    def __stop_wrench(self):
+        msg = WrenchStamped()
+        msg.header.frame_id = "body"
+
+        for _ in range(3):
+            msg.header.stamp = rospy.Time.now()
+            self.__wrench_pub.publish(msg)
+            rospy.sleep(0.05)
+#=========================================================
 
     def __run_user_flow(self, msg):
         try:
-            if not self.__notify_mission_start():
-                return
+            self.wrench_pub = rospy.Publisher(
+            '/ctl/wrench',
+            WrenchStamped,
+            queue_size=1)
 
-            # USER EDIT AREA: define route planning and game-specific flow here.
-            # ***********************************************
+            wrench = WrenchStamped()
+            wrench.header.stamp = rospy.Time.now()
+            wrench.header.frame_id = "body"
+    
 
-            if not self.__measure_translation():
-                rospy.logerr("Translation benchmark failed")
-                return
-            
-            """
-            checkpoint_target = self.__resolve_first_checkpoint_target()
-            if not self.__move_to_checkpoint(checkpoint_target):
-                return
-            if not self.__notify_checkpoint_passed(checkpoint_target['checkpoint_id']):
-                return
-            """
-            # ***********************************************
-
-            if not rospy.is_shutdown():
-                self.__notify_mission_finished()
+            self.wrench_pub.publish(wrench)
         except Exception as exc:
             rospy.logerr('user flow failed: %s', exc)
+
 
     def __callback_start(self, msg):
         if self.__started:
@@ -758,10 +1188,17 @@ class UserTemplate:
 
     def __stop_processing(self, request):
         try:
+            self.__stop_requested.set()
+
             if self.__action_active:
                 self.__command.cancel_goal()
+
+            if self.__controller_active:
+                self.__stop_wrench()
+
             rospy.loginfo('finish processing')
             return StopProcessingUserNodeResponse(result=StopProcessingUserNodeResponse.SUCCESS)
+
         except Exception as exc:
             rospy.logerr('stop processing failed: %s', exc)
             return StopProcessingUserNodeResponse(result=StopProcessingUserNodeResponse.ERROR)

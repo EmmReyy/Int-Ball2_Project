@@ -5,6 +5,7 @@ import math
 import itertools
 import rospy
 import actionlib
+from geometry_msgs.msg import WrenchStamped
 from platform_msgs.msg import UserLogic
 from platform_msgs.srv import StopProcessingUserNode, StopProcessingUserNodeResponse
 from geometry_msgs.msg import PoseStamped
@@ -17,13 +18,19 @@ class UserTemplate:
 
     def __init__(self):
         rospy.init_node('krpc_user')
+        self.wrench_pub = rospy.Publisher('/ctl/wrench', WrenchStamped, queue_size=1)
 
+        self.rate = rospy.Rate(20)
         self.__command = actionlib.SimpleActionClient('/ctl/command', CtlCommandAction)
         self.__checkpoint_client = actionlib.SimpleActionClient('/event/checkpoint_passed', CheckpointPassedAction)
 
         self.__mission_start = rospy.ServiceProxy('/event/mission_start', MissionStart)
         self.__mission_finished = rospy.ServiceProxy('/event/mission_finished', MissionFinished)
         self.__checkpoints = rospy.ServiceProxy('/mission/get_checkpoints', CheckPoints)
+
+        self.current_position = None
+        self.current_orientation = None
+        self.navigation_sub = rospy.Subscriber('/sensor_fusion/navigation',Navigation,self.__nav_callback,queue_size=1)
 
         self.__subscriber_start = rospy.Subscriber('/ib2_user/start', UserLogic, self.__callback_start)
 
@@ -164,6 +171,7 @@ class UserTemplate:
         try:
             payload = json.loads(res.message)
             checkpoints = payload.get('checkpoints', payload.get('Checkpoints', []))
+            goalpoint_id = payload.get('goalpoint_id')
             checkpoints = [cp for cp in checkpoints if isinstance(cp, dict) and self.__get_checkpoint_id(cp) is not None]
             if not checkpoints:
                 rospy.logwarn('No checkpoints found in payload')
@@ -208,8 +216,69 @@ class UserTemplate:
         )
 
         return distance
+    
+    def __nav_callback(self, msg):
+        self.current_orientation = msg.pose.pose.orientation
+        self.current_position = msg.pose.pose.position
 
-    #def __determine_angle_distance(self, first, second):
+#==================================EXPERIMENTAL============================================
+
+    #the values too sensitive, calibrate further, kysw
+    p_term_pos = 0.1
+    d_term_pos = 0.1
+
+    p_term_rot = 0.1
+    d_term_rot = 0.1
+
+
+    def __wrench_it(self, fx, fy, fz, tx, ty, tz):
+        wrench = WrenchStamped()
+
+        wrench.header.stamp = rospy.Time.now()
+        wrench.header.frame_id = "body"
+
+        wrench.wrench.force.x = fx
+        wrench.wrench.force.y = fy
+        wrench.wrench.force.z = fz
+
+        wrench.wrench.torque.x = tx
+        wrench.wrench.torque.y = ty
+        wrench.wrench.torque.z = tz
+
+        self.wrench_pub.publish(wrench)
+
+    def __calcluate_error_pos(self, target):
+
+        target_pos = target["position"]
+        error_pos = []
+
+        error_pos.append((target_pos[0] - self.current_position.x))
+        error_pos.append((target_pos[1] - self.current_position.y))
+        error_pos.append((target_pos[2] - self.current_position.z))
+                
+        return 0
+
+    def __calculate_error_rot(self, target):
+
+        marker_orient = target["marker_pose"]["quaternion"]
+
+        dot_prod = (self.current_orientation.x * marker_orient[0]) + (self.current_orientation.y * marker_orient[1]) + (self.current_orientation.x * marker_orient[2])  + (self.current_orientation.x * marker_orient[3]) 
+
+        if dot_prod < 0:
+            marker_orient = [-a for a in marker_orient]
+
+        inverted_current_orient = [-marker_orient[0], -marker_orient[1], -marker_orient[2]]
+
+        err = (self.current_orientation.x * marker_orient[3]) - (self.current_orientation.x * marker_orient[2]) - (self.current_orientation.x * marker_orient[1]) + (self.current_orientation.x * marker_orient[0])
+
+        return err
+        
+
+    #def __move_to_checkpoint_faster(self, checkpoint_target, marker_orientation):
+
+
+
+#==========================================================================================
 
     def __held_karp_approach(self, distances):
 

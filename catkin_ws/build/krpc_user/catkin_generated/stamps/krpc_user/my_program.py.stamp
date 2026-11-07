@@ -164,6 +164,7 @@ class UserTemplate:
         try:
             payload = json.loads(res.message)
             checkpoints = payload.get('checkpoints', payload.get('Checkpoints', []))
+            goalpoint_id = payload.get('goalpoint_id')
             checkpoints = [cp for cp in checkpoints if isinstance(cp, dict) and self.__get_checkpoint_id(cp) is not None]
             if not checkpoints:
                 rospy.logwarn('No checkpoints found in payload')
@@ -209,7 +210,7 @@ class UserTemplate:
 
         return distance
 
-    #def __determine_angle_distance(self, first, second):
+    #def __determine_time(self, first, second):
 
     def __held_karp_approach(self, distances):
 

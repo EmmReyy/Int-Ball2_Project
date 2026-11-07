@@ -1,0 +1,20 @@
+digraph G {
+"body" -> "cameraF_link"[label="Broadcaster: /ib2_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 32.277 sec old)\nBuffer length: 0.000 sec\n"];
+"base" -> "body"[label="Broadcaster: /trans_ib2\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 32.277 sec old)\nBuffer length: 0.000 sec\n"];
+"body" -> "cameraL_link"[label="Broadcaster: /ib2_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 32.277 sec old)\nBuffer length: 0.000 sec\n"];
+"body" -> "cameraR_link"[label="Broadcaster: /ib2_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 32.277 sec old)\nBuffer length: 0.000 sec\n"];
+"body" -> "imu_link"[label="Broadcaster: /ib2_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 32.277 sec old)\nBuffer length: 0.000 sec\n"];
+"iss_body" -> "dock_body"[label="Broadcaster: /iss_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 32.277 sec old)\nBuffer length: 0.000 sec\n"];
+"base" -> "iss_body"[label="Broadcaster: /trans_iss\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 32.277 sec old)\nBuffer length: 0.000 sec\n"];
+"base" -> "custom_object_01_body"[label="Broadcaster: /custom_object_01_state_publisher\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 32.277 sec old)\nBuffer length: 0.000 sec\n"];
+"world" -> "rpc_vec1"[label="Broadcaster: /kibo_rpc_judge\nAverage rate: 5.288 Hz\nMost recent transform: 32.159 ( 0.118 sec old)\nBuffer length: 3.215 sec\n"];
+"world" -> "rpc_vec0"[label="Broadcaster: /kibo_rpc_judge\nAverage rate: 5.288 Hz\nMost recent transform: 32.159 ( 0.118 sec old)\nBuffer length: 3.215 sec\n"];
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 32.277"[ shape=plaintext ] ;
+ }->"base";
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 32.277"[ shape=plaintext ] ;
+ }->"world";
+}
