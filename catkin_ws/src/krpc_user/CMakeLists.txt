@@ -131,8 +131,8 @@ include_directories(
 )
 
 catkin_install_python(PROGRAMS
-  #scripts/my_program.py
-  scripts/testing/measurements.py
+  scripts/my_program.py
+  #scripts/testing/measurements.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

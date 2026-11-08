@@ -30,6 +30,8 @@ class UserTemplate:
 
         self.current_position = None
         self.current_orientation = None
+        self.current_angular_velocity = None
+        self.current_velocity = None
         self.navigation_sub = rospy.Subscriber('/sensor_fusion/navigation',Navigation,self.__nav_callback,queue_size=1)
 
         self.__subscriber_start = rospy.Subscriber('/ib2_user/start', UserLogic, self.__callback_start)
@@ -235,6 +237,9 @@ class UserTemplate:
         return distance
     
     def __nav_callback(self, msg):
+
+        self.current_velocity = msg.twist.linear
+        self.current_angular_velocity = msg.twist.angular
         self.current_orientation = msg.pose.pose.orientation
         self.current_position = msg.pose.pose.position
 
@@ -355,6 +360,7 @@ class UserTemplate:
 
     So far the fucntions for the translational error and quaternion errors can now be determined. During runs, the values return
     seem to be correct, tho actual implmentaion and tests are needed
+
     '''
 
     #the values too sensitive, calibrate further, kys
@@ -471,7 +477,13 @@ class UserTemplate:
 
         #return the error in the form of quaternions
         return [angle * quat_prod[0] / half_sin, angle * quat_prod[1] / half_sin, angle * quat_prod[2] / half_sin]
-        
+
+    def __calculate_trans_force(self, target):
+
+        return ( self.p_term_pos * self.__calcluate_error_pos(target) - self.d_term_pos * self.current_velocity)
+
+    def __calculate_rot_torque(self, target):
+        return (self.p_term_rot * self.__calculate_error_rot(target) - self.d_term_rot * self.current_angular_velocity)
 
     #def __move_to_checkpoint_faster(self, checkpoint_target, marker_orientation):
 
