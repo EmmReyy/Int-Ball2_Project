@@ -155,6 +155,23 @@ class UserTemplate:
         finally:
             self.__action_active = False
 
+#==============================PATHFINDING=================================================
+
+    '''
+    This section is for determining most efficient routes. Distances between targets are calculated and a distance matrix 
+    (which looks like an adjacency matrix) is constructed. Based on that distance matrix, two algortihms may be used to 
+    determine the most efficient order of visits.
+
+    The nearest neighbour approach traverses the targets based on which target is closest to the ball in that moment. Simple but
+    sometimes causes unnecessary backtracks.
+
+    The implemented and better approach is the Held-Karp approach. This approach buils a matrix of states that keep track of the 
+    fastest order of traversals given the targets visited and an end target. 
+
+    (the biggest issue right now is i misread instructions. supposed to starts at dock and end at goal (checkpoint_12) not 
+    start at dock and end at dock. needs to be ammended)   
+    '''
+
     def __get_checkpoint_targets(self):
         targets = []
         default_target = {
@@ -220,119 +237,6 @@ class UserTemplate:
     def __nav_callback(self, msg):
         self.current_orientation = msg.pose.pose.orientation
         self.current_position = msg.pose.pose.position
-
-#==================================EXPERIMENTAL============================================
-
-    #the values too sensitive, calibrate further, kysw
-    p_term_pos = 0.1
-    d_term_pos = 0.1
-
-    p_term_rot = 0.1
-    d_term_rot = 0.1
-
-
-    def __wrench_it(self, fx, fy, fz, tx, ty, tz):
-        wrench = WrenchStamped()
-
-        wrench.header.stamp = rospy.Time.now()
-        wrench.header.frame_id = "body"
-
-        wrench.wrench.force.x = fx
-        wrench.wrench.force.y = fy
-        wrench.wrench.force.z = fz
-
-        wrench.wrench.torque.x = tx
-        wrench.wrench.torque.y = ty
-        wrench.wrench.torque.z = tz
-
-        self.wrench_pub.publish(wrench)
-
-    def __calcluate_error_pos(self, target):
-
-        target_pos = target["position"]
-        error_pos = []
-
-        error_pos.append((target_pos[0] - self.current_position.x))
-        error_pos.append((target_pos[1] - self.current_position.y))
-        error_pos.append((target_pos[2] - self.current_position.z))
-                
-        return error_pos
-
-    '''
-    def __calculate_error_rot(self, target):
-
-        marker_orient = target["marker_pose"]["quaternion"]
-
-        dot_prod = (self.current_orientation.x * marker_orient[0]) + (self.current_orientation.y * marker_orient[1]) + (self.current_orientation.z * marker_orient[2])  + (self.current_orientation.w * marker_orient[3]) 
-
-        if dot_prod < 0:
-            marker_orient = [-a for a in marker_orient]
-
-        err = (self.current_orientation.w * marker_orient[3]) + (self.current_orientation.x * marker_orient[0]) + (self.current_orientation.y * marker_orient[1]) + (self.current_orientation.z * marker_orient[2])
-
-        #fun fact: the i wrote tthis lines at 2am. i really was just hallucinating at this point
-        safe_err_val = 1.0 if (err > 1.0) else (-1.0 if (err < -1.0) else err)
-
-        err_in_rads = 2.0 * math.acos(abs(safe_err_val))
-        err_in_degs = err_in_rads * (180.0 / math.pi)
-        return err
-    '''     
-
-    def __calculate_error_rot(self, target):
-
-        marker_orient = target["marker_pose"]["quaternion"]
-
-        current_inverted = [-self.current_orientation.x, -self.current_orientation.y, -self.current_orientation.z, -self.current_orientation.w,]
-
-        quat_prod = []
-
-        #x
-        quat_prod.append( current_inverted[3]* marker_orient.x +
-                          current_inverted[0]* marker_orient.w +
-                          current_inverted[1]* marker_orient.z - 
-                          current_inverted[2]* marker_orient.y )
-
-        #y
-        quat_prod.append( current_inverted[3]* marker_orient.y -
-                          current_inverted[0]* marker_orient.z +
-                          current_inverted[1]* marker_orient.w +
-                          current_inverted[2]* marker_orient.x )
-
-        #z
-        quat_prod.append( current_inverted[3]* marker_orient.z +
-                          current_inverted[0]* marker_orient.y -
-                          current_inverted[1]* marker_orient.x +
-                          current_inverted[2]* marker_orient.w )
-
-        #w
-        quat_prod.append( current_inverted[3]* marker_orient.w -
-                          current_inverted[0]* marker_orient.x -
-                          current_inverted[1]* marker_orient.y -
-                          current_inverted[2]* marker_orient.z )
-
-        norm = math.sqrt(quat_prod[0]**2 + quat_prod[1]**2 + quat_prod[2]**2 + quat_prod[3]**2)
-
-        for i in range (0,len(quat_prod)):
-            quat_prod[i] /= norm
-    
-        if quat_prod[3] < 0:
-            for i in range (0, len(quat_prod)):
-                quat_prod[i] = -quat_prod[i]
-        
-        half_sin = math.sqrt(quat_prod[0]**2 + quat_prod[1]**2 + quat_prod[2]**2)
-
-        safe_half_sin = 1.0 if (half_sin > 1.0) else (-1.0 if (half_sin < -1.0) else half_sin)
-
-        angle = 2.0 * math.atan2(safe_half_sin, quat_prod[3])
-
-        return [angle * quat_prod[0] / half_sin, angle * quat_prod[1] / half_sin, angle * quat_prod[2] / half_sin]
-        
-
-    #def __move_to_checkpoint_faster(self, checkpoint_target, marker_orientation):
-
-
-
-#==========================================================================================
 
     def __held_karp_approach(self, distances):
 
@@ -433,6 +337,148 @@ class UserTemplate:
         ordered_targets = [targets[i] for i in best_order]
 
         return ordered_targets
+
+#==========================================================================================
+
+
+
+#==============================MOVEMENT====================================================
+
+    '''
+    The intball2 provides ctl/wrench which allows a deeper way to move the intball. The important bits are force and torque
+    which push and rotate the ball.
+
+    We use a PD controller thingy (look it up). Farther it is from target faster it goes. 
+
+    To make the ball go we need to find the translation error and rotation aerr (in quaternions) of the balls pose and the 
+    targets pose so we can construct the vectors and determine the force and torque to "wrench"
+
+    So far the fucntions for the translational error and quaternion errors can now be determined. During runs, the values return
+    seem to be correct, tho actual implmentaion and tests are needed
+    '''
+
+    #the values too sensitive, calibrate further, kys
+    p_term_pos = 0.1
+    d_term_pos = 0.1
+
+    p_term_rot = 0.1
+    d_term_rot = 0.1
+
+    #this function is for publishing the force and torque to the ball
+    def __wrench_it(self, fx, fy, fz, tx, ty, tz):
+        wrench = WrenchStamped()
+
+        wrench.header.stamp = rospy.Time.now()
+        wrench.header.frame_id = "body"
+
+        wrench.wrench.force.x = fx
+        wrench.wrench.force.y = fy
+        wrench.wrench.force.z = fz
+
+        wrench.wrench.torque.x = tx
+        wrench.wrench.torque.y = ty
+        wrench.wrench.torque.z = tz
+
+        self.wrench_pub.publish(wrench)
+
+    def __calcluate_error_pos(self, target):
+
+        target_pos = target["position"]
+        error_pos = []
+
+        error_pos.append((target_pos[0] - self.current_position.x))
+        error_pos.append((target_pos[1] - self.current_position.y))
+        error_pos.append((target_pos[2] - self.current_position.z))
+                
+        return error_pos
+
+    '''
+    def __calculate_error_rot(self, target):
+
+        marker_orient = target["marker_pose"]["quaternion"]
+
+        dot_prod = (self.current_orientation.x * marker_orient[0]) + (self.current_orientation.y * marker_orient[1]) + (self.current_orientation.z * marker_orient[2])  + (self.current_orientation.w * marker_orient[3]) 
+
+        if dot_prod < 0:
+            marker_orient = [-a for a in marker_orient]
+
+        err = (self.current_orientation.w * marker_orient[3]) + (self.current_orientation.x * marker_orient[0]) + (self.current_orientation.y * marker_orient[1]) + (self.current_orientation.z * marker_orient[2])
+
+        #fun fact: the i wrote tthis lines at 2am. i really was just hallucinating at this point
+        safe_err_val = 1.0 if (err > 1.0) else (-1.0 if (err < -1.0) else err)
+
+        err_in_rads = 2.0 * math.acos(abs(safe_err_val))
+        err_in_degs = err_in_rads * (180.0 / math.pi)
+        return err
+    '''     
+
+    def __calculate_error_rot(self, target):
+
+        #the orientation of the AR marker at the checkpoint
+        marker_orient = target["marker_pose"]["quaternion"]
+
+        #since quaternions are imaginary numbers, get conjugate
+        current_inverted = [-self.current_orientation.x, -self.current_orientation.y, -self.current_orientation.z, -self.current_orientation.w,]
+
+        #hold the porduct of the current and target quats
+        quat_prod = []
+
+
+        #x
+        quat_prod.append( current_inverted[3]* marker_orient.x +
+                          current_inverted[0]* marker_orient.w +
+                          current_inverted[1]* marker_orient.z - 
+                          current_inverted[2]* marker_orient.y )
+
+        #y
+        quat_prod.append( current_inverted[3]* marker_orient.y -
+                          current_inverted[0]* marker_orient.z +
+                          current_inverted[1]* marker_orient.w +
+                          current_inverted[2]* marker_orient.x )
+
+        #z
+        quat_prod.append( current_inverted[3]* marker_orient.z +
+                          current_inverted[0]* marker_orient.y -
+                          current_inverted[1]* marker_orient.x +
+                          current_inverted[2]* marker_orient.w )
+
+        #w
+        quat_prod.append( current_inverted[3]* marker_orient.w -
+                          current_inverted[0]* marker_orient.x -
+                          current_inverted[1]* marker_orient.y -
+                          current_inverted[2]* marker_orient.z )
+
+        #ROS publishes quats normalized so we gotta normalize too
+        norm = math.sqrt(quat_prod[0]**2 + quat_prod[1]**2 + quat_prod[2]**2 + quat_prod[3]**2)
+
+        #normalize
+        for i in range (0,len(quat_prod)):
+            quat_prod[i] /= norm
+
+        #since negative and postive quats end up at the same orientation, pick which direction of rotation is shorter
+        if quat_prod[3] < 0:
+            for i in range (0, len(quat_prod)):
+                quat_prod[i] = -quat_prod[i]
+
+        #gets the  
+        half_sin = math.sqrt(quat_prod[0]**2 + quat_prod[1]**2 + quat_prod[2]**2)
+
+        #avoid the floating point error by constraining the value
+        safe_half_sin = 1.0 if (half_sin > 1.0) else (-1.0 if (half_sin < -1.0) else half_sin)
+
+        #convert to angle
+        angle = 2.0 * math.atan2(safe_half_sin, quat_prod[3])
+
+        #return the error in the form of quaternions
+        return [angle * quat_prod[0] / half_sin, angle * quat_prod[1] / half_sin, angle * quat_prod[2] / half_sin]
+        
+
+    #def __move_to_checkpoint_faster(self, checkpoint_target, marker_orientation):
+
+
+
+#==========================================================================================
+
 
     def __run_user_flow(self, msg):
         try:
