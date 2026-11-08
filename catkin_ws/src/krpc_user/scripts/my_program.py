@@ -256,8 +256,9 @@ class UserTemplate:
         error_pos.append((target_pos[1] - self.current_position.y))
         error_pos.append((target_pos[2] - self.current_position.z))
                 
-        return 0
+        return error_pos
 
+    '''
     def __calculate_error_rot(self, target):
 
         marker_orient = target["marker_pose"]["quaternion"]
@@ -269,7 +270,62 @@ class UserTemplate:
 
         err = (self.current_orientation.w * marker_orient[3]) + (self.current_orientation.x * marker_orient[0]) + (self.current_orientation.y * marker_orient[1]) + (self.current_orientation.z * marker_orient[2])
 
+        #fun fact: the i wrote tthis lines at 2am. i really was just hallucinating at this point
+        safe_err_val = 1.0 if (err > 1.0) else (-1.0 if (err < -1.0) else err)
+
+        err_in_rads = 2.0 * math.acos(abs(safe_err_val))
+        err_in_degs = err_in_rads * (180.0 / math.pi)
         return err
+    '''     
+
+    def __calculate_error_rot(self, target):
+
+        marker_orient = target["marker_pose"]["quaternion"]
+
+        current_inverted = [-self.current_orientation.x, -self.current_orientation.y, -self.current_orientation.z, -self.current_orientation.w,]
+
+        quat_prod = []
+
+        #x
+        quat_prod.append( current_inverted[3]* marker_orient.x +
+                          current_inverted[0]* marker_orient.w +
+                          current_inverted[1]* marker_orient.z - 
+                          current_inverted[2]* marker_orient.y )
+
+        #y
+        quat_prod.append( current_inverted[3]* marker_orient.y -
+                          current_inverted[0]* marker_orient.z +
+                          current_inverted[1]* marker_orient.w +
+                          current_inverted[2]* marker_orient.x )
+
+        #z
+        quat_prod.append( current_inverted[3]* marker_orient.z +
+                          current_inverted[0]* marker_orient.y -
+                          current_inverted[1]* marker_orient.x +
+                          current_inverted[2]* marker_orient.w )
+
+        #w
+        quat_prod.append( current_inverted[3]* marker_orient.w -
+                          current_inverted[0]* marker_orient.x -
+                          current_inverted[1]* marker_orient.y -
+                          current_inverted[2]* marker_orient.z )
+
+        norm = math.sqrt(quat_prod[0]**2 + quat_prod[1]**2 + quat_prod[2]**2 + quat_prod[3]**2)
+
+        for i in range (0,len(quat_prod)):
+            quat_prod[i] /= norm
+    
+        if quat_prod[3] < 0:
+            for i in range (0, len(quat_prod)):
+                quat_prod[i] = -quat_prod[i]
+        
+        half_sin = math.sqrt(quat_prod[0]**2 + quat_prod[1]**2 + quat_prod[2]**2)
+
+        safe_half_sin = 1.0 if (half_sin > 1.0) else (-1.0 if (half_sin < -1.0) else half_sin)
+
+        angle = 2.0 * math.atan2(safe_half_sin, quat_prod[3])
+
+        return [angle * quat_prod[0] / half_sin, angle * quat_prod[1] / half_sin, angle * quat_prod[2] / half_sin]
         
 
     #def __move_to_checkpoint_faster(self, checkpoint_target, marker_orientation):
