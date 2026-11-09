@@ -3,9 +3,10 @@
 
   <arg name="checkpoint_source_path" default="/tmp/share/logs/latest/cheat_sheet.json" />
  
-  <arg name="team_user_script" default="my_program.py" />
+  <arg name="team_user_script" default="slop.py" />
   <!--
   <arg name="team_user_script" default="measurements.py" />
+  <arg name="team_user_script" default="my_program.py" />
   -->
   <!--
     C++ user implementation:

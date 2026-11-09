@@ -53,7 +53,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
 endif()
 
 if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/krpc_user" TYPE PROGRAM FILES "/users/catkin_ws/build/krpc_user/catkin_generated/installspace/measurements.py")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/krpc_user" TYPE PROGRAM FILES "/users/catkin_ws/build/krpc_user/catkin_generated/installspace/slop.py")
 endif()
 
 if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
